@@ -26,6 +26,31 @@ EPSILON_DECAY = 0.995
 TARGET_UPDATE_FREQ = 500
 REDIS_HOST = sys.argv[1]
 
+import logging
+
+# Create a logger
+logger = logging.getLogger("my_logger")
+logger.setLevel(logging.DEBUG)
+
+# Create handlers
+file_handler = logging.FileHandler("run.log")  # Write logs to a file
+file_handler.setLevel(logging.DEBUG)
+
+console_handler = logging.StreamHandler()  # Write logs to stdout
+console_handler.setLevel(logging.DEBUG)
+
+# Create a formatter
+formatter = logging.Formatter("%(asctime)s - %(levelname)s - %(message)s")
+
+# Add formatter to handlers
+file_handler.setFormatter(formatter)
+console_handler.setFormatter(formatter)
+
+# Add handlers to logger
+logger.addHandler(file_handler)
+logger.addHandler(console_handler)
+
+
 
 # Set device
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -44,59 +69,55 @@ class QNetwork(nn.Module):
         return self.fc3(x)
 
 # Replay Buffer
-class ReplayBuffer:
-    def __init__(self, capacity):
-        self.capacity = capacity
-        self.r = redis.Redis(host=REDIS_HOST, port = 6379)
-        self.r.delete("shared")
-
-    def push(self, state, action, reward, next_state, done):
-        data = { "state" : state, "action": action, "reward": reward, "next_state": next_state, "done" : int(done)}
-        data = json.dumps(data, default=lambda obj: obj.tolist() if isinstance(obj, np.ndarray) else obj)
-        self.r.rpush("shared", data)
-        self.r.ltrim("shared", -self.capacity, -1)
-
-
-    def sample(self, batch_size):
-        size = self.r.llen("shared")
-        if size == 0:
-            return []
-        random_indices = random.sample(range(size), min(batch_size, size))
-        samples = [json.loads(self.r.lindex("shared", index)) for index in random_indices]
-        states = [sample["state"] for sample in samples]
-        actions = [sample["action"] for sample in samples]
-        rewards = [sample["reward"] for sample in samples]
-        next_states = [sample["next_state"] for sample in samples]
-        dones = [sample["done"] for sample in samples]
-        return np.stack(states), np.stack(actions), np.stack(rewards), np.stack(next_states), np.stack(dones)
-
-    def __len__(self):
-        return self.r.llen("shared")
-    
-# Replay Buffer
 # class ReplayBuffer:
 #     def __init__(self, capacity):
-#         self.buffer = deque(maxlen=capacity)
+#         self.capacity = capacity
+#         self.r = redis.Redis(host=REDIS_HOST, port = 6379)
+#         self.r.delete("shared")
 
 #     def push(self, state, action, reward, next_state, done):
-#         start = time()
-#         self.buffer.append((state, action, reward, next_state, int(done)))
-#         print(f"Push took {time() - start}")
+#         data = { "state" : state, "action": action, "reward": reward, "next_state": next_state, "done" : int(done)}
+#         data = json.dumps(data, default=lambda obj: obj.tolist() if isinstance(obj, np.ndarray) else obj)
+#         self.r.rpush("shared", data)
+#         self.r.ltrim("shared", -self.capacity, -1)
+
 
 #     def sample(self, batch_size):
-#         start = time()
-#         states, actions, rewards, next_states, dones = zip(*random.sample(self.buffer, batch_size))
-#         print(f"Sample took {time() - start}")
-#         return (
-#             np.stack(states),
-#             np.stack(actions),
-#             np.stack(rewards),
-#             np.stack(next_states),
-#             np.stack(dones),
-#         )
+#         size = self.r.llen("shared")
+#         if size == 0:
+#             return []
+#         random_indices = random.sample(range(size), min(batch_size, size))
+#         samples = [json.loads(self.r.lindex("shared", index)) for index in random_indices]
+#         states = [sample["state"] for sample in samples]
+#         actions = [sample["action"] for sample in samples]
+#         rewards = [sample["reward"] for sample in samples]
+#         next_states = [sample["next_state"] for sample in samples]
+#         dones = [sample["done"] for sample in samples]
+#         return np.stack(states), np.stack(actions), np.stack(rewards), np.stack(next_states), np.stack(dones)
 
 #     def __len__(self):
-#         return len(self.buffer)
+#         return self.r.llen("shared")
+    
+# Replay Buffer
+class ReplayBuffer:
+    def __init__(self, capacity):
+        self.buffer = deque(maxlen=capacity)
+
+    def push(self, state, action, reward, next_state, done):
+        self.buffer.append((state, action, reward, next_state, int(done)))
+
+    def sample(self, batch_size):
+        states, actions, rewards, next_states, dones = zip(*random.sample(self.buffer, batch_size))
+        return (
+            np.stack(states),
+            np.stack(actions),
+            np.stack(rewards),
+            np.stack(next_states),
+            np.stack(dones),
+        )
+
+    def __len__(self):
+        return len(self.buffer)
 
 # DDQN Agent
 class DDQNAgent:
@@ -186,9 +207,9 @@ def train_ddqn(env_name="Acrobot-v1", episodes=MAX_EPISODES):
                 agent.update_target_network()
         total_rewards.append(total_reward)
 
-        print(f"Episode {episode + 1}: Total Reward: {total_reward:.2f}")
+        logger.info(f"Episode {episode + 1}: Total Reward: {total_reward:.2f}")
     plt.plot(total_rewards)
-    plt.savefig(f"output_{os.environ["HOSTNAME"]}.png")
+    plt.savefig(f"output_{os.environ['HOSTNAME']}.png")
 
     env.close()
 
