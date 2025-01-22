@@ -9,7 +9,7 @@ from collections import deque
 import simplejson as json
 import redis
 import sys
-from time import time
+import os
 
 np.bool8 = np.bool_
 np.float_ = np.float64
@@ -51,16 +51,13 @@ class ReplayBuffer:
         self.r.delete("shared")
 
     def push(self, state, action, reward, next_state, done):
-        start = time()
         data = { "state" : state, "action": action, "reward": reward, "next_state": next_state, "done" : int(done)}
         data = json.dumps(data, default=lambda obj: obj.tolist() if isinstance(obj, np.ndarray) else obj)
         self.r.rpush("shared", data)
         self.r.ltrim("shared", -self.capacity, -1)
-        print(f"Push took {time() - start}")
 
 
     def sample(self, batch_size):
-        start = time()
         size = self.r.llen("shared")
         if size == 0:
             return []
@@ -71,7 +68,6 @@ class ReplayBuffer:
         rewards = [sample["reward"] for sample in samples]
         next_states = [sample["next_state"] for sample in samples]
         dones = [sample["done"] for sample in samples]
-        print(f"Sample took {time() - start}")
         return np.stack(states), np.stack(actions), np.stack(rewards), np.stack(next_states), np.stack(dones)
 
     def __len__(self):
@@ -192,7 +188,7 @@ def train_ddqn(env_name="Acrobot-v1", episodes=MAX_EPISODES):
 
         print(f"Episode {episode + 1}: Total Reward: {total_reward:.2f}")
     plt.plot(total_rewards)
-    plt.show()
+    plt.savefig(f"output_{os.environ["HOSTNAME"]}.png")
 
     env.close()
 
