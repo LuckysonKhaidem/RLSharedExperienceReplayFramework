@@ -4,8 +4,13 @@ import torch.nn as nn
 import torch.optim as optim
 import numpy as np
 import random
-from collections import deque
 from matplotlib import pyplot as plt
+from collections import deque
+import simplejson as json
+import redis
+import sys
+from time import time
+
 np.bool8 = np.bool_
 np.float_ = np.float64
 
@@ -19,6 +24,7 @@ EPSILON_START = 1.0
 EPSILON_END = 0.01
 EPSILON_DECAY = 0.995
 TARGET_UPDATE_FREQ = 500
+REDIS_HOST = sys.argv[1]
 
 
 # Set device
@@ -40,23 +46,61 @@ class QNetwork(nn.Module):
 # Replay Buffer
 class ReplayBuffer:
     def __init__(self, capacity):
-        self.buffer = deque(maxlen=capacity)
+        self.capacity = capacity
+        self.r = redis.Redis(host=REDIS_HOST, port = 6379)
+        self.r.delete("shared")
 
     def push(self, state, action, reward, next_state, done):
-        self.buffer.append((state, action, reward, next_state, int(done)))
+        start = time()
+        data = { "state" : state, "action": action, "reward": reward, "next_state": next_state, "done" : int(done)}
+        data = json.dumps(data, default=lambda obj: obj.tolist() if isinstance(obj, np.ndarray) else obj)
+        self.r.rpush("shared", data)
+        self.r.ltrim("shared", -self.capacity, -1)
+        print(f"Push took {time() - start}")
+
 
     def sample(self, batch_size):
-        states, actions, rewards, next_states, dones = zip(*random.sample(self.buffer, batch_size))
-        return (
-            np.stack(states),
-            np.stack(actions),
-            np.stack(rewards),
-            np.stack(next_states),
-            np.stack(dones),
-        )
+        start = time()
+        size = self.r.llen("shared")
+        if size == 0:
+            return []
+        random_indices = random.sample(range(size), min(batch_size, size))
+        samples = [json.loads(self.r.lindex("shared", index)) for index in random_indices]
+        states = [sample["state"] for sample in samples]
+        actions = [sample["action"] for sample in samples]
+        rewards = [sample["reward"] for sample in samples]
+        next_states = [sample["next_state"] for sample in samples]
+        dones = [sample["done"] for sample in samples]
+        print(f"Sample took {time() - start}")
+        return np.stack(states), np.stack(actions), np.stack(rewards), np.stack(next_states), np.stack(dones)
 
     def __len__(self):
-        return len(self.buffer)
+        return self.r.llen("shared")
+    
+# Replay Buffer
+# class ReplayBuffer:
+#     def __init__(self, capacity):
+#         self.buffer = deque(maxlen=capacity)
+
+#     def push(self, state, action, reward, next_state, done):
+#         start = time()
+#         self.buffer.append((state, action, reward, next_state, int(done)))
+#         print(f"Push took {time() - start}")
+
+#     def sample(self, batch_size):
+#         start = time()
+#         states, actions, rewards, next_states, dones = zip(*random.sample(self.buffer, batch_size))
+#         print(f"Sample took {time() - start}")
+#         return (
+#             np.stack(states),
+#             np.stack(actions),
+#             np.stack(rewards),
+#             np.stack(next_states),
+#             np.stack(dones),
+#         )
+
+#     def __len__(self):
+#         return len(self.buffer)
 
 # DDQN Agent
 class DDQNAgent:
