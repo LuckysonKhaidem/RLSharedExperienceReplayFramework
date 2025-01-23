@@ -73,7 +73,10 @@ class ReplayBuffer:
     def __init__(self, capacity):
         self.capacity = capacity
         self.r = redis.Redis(host=REDIS_HOST, port = 6379)
-        self.r.delete("shared")
+        self.r.incr("counter")
+        c = int(self.r.get("counter"))
+        if (c == 1):
+            self.r.delete("shared")
 
     def push(self, state, action, reward, next_state, done):
         data = { "state" : state, "action": action, "reward": reward, "next_state": next_state, "done" : int(done)}
@@ -94,6 +97,9 @@ class ReplayBuffer:
         next_states = [sample["next_state"] for sample in samples]
         dones = [sample["done"] for sample in samples]
         return np.stack(states), np.stack(actions), np.stack(rewards), np.stack(next_states), np.stack(dones)
+
+    def done(self):
+        self.r.decr("counter")
 
     def __len__(self):
         return self.r.llen("shared")
@@ -210,6 +216,7 @@ def train_ddqn(env_name="Acrobot-v1", episodes=MAX_EPISODES):
         logger.info(f"Episode {episode + 1}: Total Reward: {total_reward:.2f}")
     plt.plot(total_rewards)
     plt.savefig(f"output.png")
+
 
     env.close()
 
