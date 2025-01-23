@@ -82,7 +82,8 @@ class ReplayBuffer:
         data = { "state" : state, "action": action, "reward": reward, "next_state": next_state, "done" : int(done)}
         data = json.dumps(data, default=lambda obj: obj.tolist() if isinstance(obj, np.ndarray) else obj)
         self.r.rpush("shared", data)
-        self.r.ltrim("shared", -self.capacity, -1)
+        if (self.r.llen("shared") >= self.capacity):
+            self.r.ltrim("shared", 0, -1)
 
 
     def sample(self, batch_size):
@@ -217,7 +218,7 @@ def train_ddqn(env_name="Acrobot-v1", episodes=MAX_EPISODES):
     plt.plot(total_rewards)
     plt.savefig(f"output.png")
 
-
+    agent.memory.done()
     env.close()
 
 # Run the training
