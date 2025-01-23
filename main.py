@@ -15,7 +15,7 @@ np.bool8 = np.bool_
 np.float_ = np.float64
 
 # Hyperparameters
-MAX_EPISODES = 1000
+MAX_EPISODES = 2000
 GAMMA = 0.99
 LEARNING_RATE = 1e-3
 BATCH_SIZE = 64
@@ -24,7 +24,7 @@ EPSILON_START = 1.0
 EPSILON_END = 0.01
 EPSILON_DECAY = 0.995
 TARGET_UPDATE_FREQ = 500
-REDIS_HOST = sys.argv[1]
+REDIS_HOST = sys.argv[1] if len(sys.argv) > 1 else None
 
 import logging
 
@@ -69,7 +69,7 @@ class QNetwork(nn.Module):
         return self.fc3(x)
 
 # Replay Buffer
-class ReplayBuffer:
+class SharedReplayBuffer:
     def __init__(self, capacity):
         self.capacity = capacity
         self.r = redis.Redis(host=REDIS_HOST, port = 6379)
@@ -106,25 +106,28 @@ class ReplayBuffer:
         return self.r.llen("shared")
     
 # Replay Buffer
-# class ReplayBuffer:
-#     def __init__(self, capacity):
-#         self.buffer = deque(maxlen=capacity)
+class LocalReplayBuffer:
+    def __init__(self, capacity):
+        self.buffer = deque(maxlen=capacity)
 
-#     def push(self, state, action, reward, next_state, done):
-#         self.buffer.append((state, action, reward, next_state, int(done)))
+    def push(self, state, action, reward, next_state, done):
+        self.buffer.append((state, action, reward, next_state, int(done)))
 
-#     def sample(self, batch_size):
-#         states, actions, rewards, next_states, dones = zip(*random.sample(self.buffer, batch_size))
-#         return (
-#             np.stack(states),
-#             np.stack(actions),
-#             np.stack(rewards),
-#             np.stack(next_states),
-#             np.stack(dones),
-#         )
+    def sample(self, batch_size):
+        states, actions, rewards, next_states, dones = zip(*random.sample(self.buffer, batch_size))
+        return (
+            np.stack(states),
+            np.stack(actions),
+            np.stack(rewards),
+            np.stack(next_states),
+            np.stack(dones),
+        )
 
-#     def __len__(self):
-#         return len(self.buffer)
+    def __len__(self):
+        return len(self.buffer)
+    
+    def done(self):
+        pass
 
 # DDQN Agent
 class DDQNAgent:
@@ -132,7 +135,10 @@ class DDQNAgent:
         self.state_dim = state_dim
         self.action_dim = action_dim
         self.epsilon = EPSILON_START
-        self.memory = ReplayBuffer(MEMORY_SIZE)
+        if REDIS_HOST is None:
+            self.memory = LocalReplayBuffer(MEMORY_SIZE)
+        else:
+            self.memory = SharedReplayBuffer(MEMORY_SIZE)
 
         self.q_network = QNetwork(state_dim, action_dim).to(device)
         self.target_network = QNetwork(state_dim, action_dim).to(device)
