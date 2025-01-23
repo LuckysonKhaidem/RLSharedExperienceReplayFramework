@@ -15,15 +15,15 @@ np.bool8 = np.bool_
 np.float_ = np.float64
 
 # Hyperparameters
-MAX_EPISODES = 2000
-GAMMA = 0.99
-LEARNING_RATE = 1e-3
-BATCH_SIZE = 64
-MEMORY_SIZE = 100000
-EPSILON_START = 1.0
-EPSILON_END = 0.01
-EPSILON_DECAY = 0.995
-TARGET_UPDATE_FREQ = 500
+MAX_EPISODES = 1000         # Training episodes
+GAMMA = 0.99                # Discount factor
+LEARNING_RATE = 1e-3        # Learning rate for optimizer
+BATCH_SIZE = 64             # Number of samples for training
+MEMORY_SIZE = 100000        # Replay buffer size
+EPSILON_START = 1.0         # Initial exploration probability
+EPSILON_END = 0.01          # Minimum exploration probability
+EPSILON_DECAY = 0.995       # Decay rate of epsilon
+TARGET_UPDATE_FREQ = 200    # Target network update frequency
 REDIS_HOST = sys.argv[1] if len(sys.argv) > 1 else None
 
 import logging
@@ -83,7 +83,7 @@ class SharedReplayBuffer:
         data = json.dumps(data, default=lambda obj: obj.tolist() if isinstance(obj, np.ndarray) else obj)
         self.r.rpush("shared", data)
         if (self.r.llen("shared") >= self.capacity):
-            self.r.ltrim("shared", 0, -1)
+            self.r.ltrim("shared", 1, -1)
 
 
     def sample(self, batch_size):
@@ -189,7 +189,7 @@ class DDQNAgent:
         self.epsilon = EPSILON_END + (EPSILON_START - EPSILON_END) * np.exp(-step / EPSILON_DECAY)
 
 # Main Training Loop
-def train_ddqn(env_name="Acrobot-v1", episodes=MAX_EPISODES):
+def train_ddqn(env_name="MountainCar-v0", episodes=MAX_EPISODES):
     env = gym.make(env_name)
     state_dim = env.observation_space.shape[0]
     action_dim = env.action_space.n
@@ -222,7 +222,7 @@ def train_ddqn(env_name="Acrobot-v1", episodes=MAX_EPISODES):
 
         logger.info(f"Episode {episode + 1}: Total Reward: {total_reward:.2f}")
     plt.plot(total_rewards)
-    plt.savefig(f"output.png")
+    plt.savefig(f"output_{env_name}.png")
 
     agent.memory.done()
     env.close()
