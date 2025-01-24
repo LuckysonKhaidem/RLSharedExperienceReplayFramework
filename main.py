@@ -73,8 +73,8 @@ class SharedReplayBuffer:
     def __init__(self, capacity):
         self.capacity = capacity
         self.r = redis.Redis(host=REDIS_HOST, port = 6379)
-        self.r.incr("counter")
-        c = int(self.r.get("counter"))
+        self.r.incr("counter1")
+        c = int(self.r.get("counter1"))
         if (c == 1):
             self.r.delete("shared")
 
@@ -91,7 +91,12 @@ class SharedReplayBuffer:
         if size == 0:
             return []
         random_indices = random.sample(range(size), min(batch_size, size))
-        samples = [json.loads(self.r.lindex("shared", index)) for index in random_indices]
+        samples = []
+        for index in random_indices:
+            try:
+                samples.append(json.loads(self.r.lindex("shared", index)))
+            except:
+                continue
         states = [sample["state"] for sample in samples]
         actions = [sample["action"] for sample in samples]
         rewards = [sample["reward"] for sample in samples]
@@ -100,7 +105,7 @@ class SharedReplayBuffer:
         return np.stack(states), np.stack(actions), np.stack(rewards), np.stack(next_states), np.stack(dones)
 
     def done(self):
-        self.r.decr("counter")
+        self.r.decr("counter1")
 
     def __len__(self):
         return self.r.llen("shared")
