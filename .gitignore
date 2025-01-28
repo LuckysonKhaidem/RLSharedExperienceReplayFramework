@@ -3,3 +3,4 @@ output*.png
 run.log
 results
 *.pem
+rewards*.json
