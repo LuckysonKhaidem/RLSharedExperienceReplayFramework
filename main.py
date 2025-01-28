@@ -10,12 +10,13 @@ import simplejson as json
 import redis
 import sys
 import os
+import json
 
 np.bool8 = np.bool_
 np.float_ = np.float64
 
 # Hyperparameters
-MAX_EPISODES = 1000         # Training episodes
+MAX_EPISODES = 1000       # Training episodes
 GAMMA = 0.99                # Discount factor
 LEARNING_RATE = 1e-3        # Learning rate for optimizer
 BATCH_SIZE = 64             # Number of samples for training
@@ -23,7 +24,7 @@ MEMORY_SIZE = 100000        # Replay buffer size
 EPSILON_START = 1.0         # Initial exploration probability
 EPSILON_END = 0.01          # Minimum exploration probability
 EPSILON_DECAY = 0.995       # Decay rate of epsilon
-TARGET_UPDATE_FREQ = 200    # Target network update frequency
+TARGET_UPDATE_FREQ = 100    # Target network update frequency
 REDIS_HOST = sys.argv[1] if len(sys.argv) > 1 else None
 
 import logging
@@ -228,6 +229,9 @@ def train_ddqn(env_name="MountainCar-v0", episodes=MAX_EPISODES):
         logger.info(f"Episode {episode + 1}: Total Reward: {total_reward:.2f}")
     plt.plot(total_rewards)
     plt.savefig(f"output_{env_name}.png")
+
+    with open(f"rewards_{env_name}.json", "w") as f:
+        f.write(json.dumps(total_rewards))
 
     agent.memory.done()
     env.close()
