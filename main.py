@@ -16,7 +16,7 @@ np.bool8 = np.bool_
 np.float_ = np.float64
 
 # Hyperparameters
-MAX_EPISODES = 1000       # Training episodes
+MAX_EPISODES = 500      # Training episodes
 GAMMA = 0.99                # Discount factor
 LEARNING_RATE = 1e-3        # Learning rate for optimizer
 BATCH_SIZE = 64             # Number of samples for training
@@ -195,7 +195,7 @@ class DDQNAgent:
         self.epsilon = EPSILON_END + (EPSILON_START - EPSILON_END) * np.exp(-step / EPSILON_DECAY)
 
 # Main Training Loop
-def train_ddqn(env_name="MountainCar-v0", episodes=MAX_EPISODES):
+def train_ddqn(env_name="CartPole-v0", episodes=MAX_EPISODES):
     env = gym.make(env_name)
     state_dim = env.observation_space.shape[0]
     action_dim = env.action_space.n
