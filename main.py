@@ -27,6 +27,8 @@ EPSILON_DECAY = 0.995       # Decay rate of epsilon
 TARGET_UPDATE_FREQ = 100    # Target network update frequency
 REDIS_HOST = sys.argv[1] if len(sys.argv) > 1 else None
 
+COUNTER_KEY = "counter3"
+
 import logging
 
 # Create a logger
@@ -74,8 +76,8 @@ class SharedReplayBuffer:
     def __init__(self, capacity):
         self.capacity = capacity
         self.r = redis.Redis(host=REDIS_HOST, port = 6379)
-        self.r.incr("counter1")
-        c = int(self.r.get("counter1"))
+        self.r.incr(COUNTER_KEY)
+        c = int(self.r.get(COUNTER_KEY))
         if (c == 1):
             self.r.delete("shared")
 
@@ -106,7 +108,7 @@ class SharedReplayBuffer:
         return np.stack(states), np.stack(actions), np.stack(rewards), np.stack(next_states), np.stack(dones)
 
     def done(self):
-        self.r.decr("counter1")
+        self.r.decr(COUNTER_KEY)
 
     def __len__(self):
         return self.r.llen("shared")
