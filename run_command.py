@@ -6,7 +6,11 @@ pem_file = "rlresearch.pem"
 
 instances = get_instances()
 worker_instances = instances["Workers"]
-command = sys.argv[1]
+redis_instance = instances["Redis"]
+
+command = f"./entrypoint.sh {redis_instance}"
+if len(sys.argv) > 1:
+	command = sys.argv[1]
 
 for instance in worker_instances:
 	print(f"Running command {command} on instance {instance}")

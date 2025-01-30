@@ -7,6 +7,7 @@ target_key = sys.argv[1]
 redis_instance = instances["Redis"]
 redis_client = redis.Redis(host = redis_instance, port=6379)
 
-redis_client.get(target_key)
+print(f"Deleting key '{target_key}' with value '{redis_client.get(target_key)}'")
+redis_client.delete(target_key)
 
 redis_client.close()
