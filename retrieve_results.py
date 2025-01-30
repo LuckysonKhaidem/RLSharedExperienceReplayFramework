@@ -1,10 +1,15 @@
 import os
 import sys 
+from get_instances import get_instances
 
-instances = sys.argv[1].split(",") 
+instances = get_instances()
+worker_instances = instances["Workers"]
+
+command = sys.argv[1]
 pem_file = "rlresearch.pem"
-src_file = sys.argv[2]
+src_file = sys.argv[1]
 num_instances = len(instances)
+
 for i in range(num_instances):
 	os.system(f"mkdir -p results/instance{i}")
 

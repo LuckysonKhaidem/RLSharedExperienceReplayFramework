@@ -20,14 +20,14 @@ MAX_EPISODES = 500      # Training episodes
 GAMMA = 0.99                # Discount factor
 LEARNING_RATE = 1e-3        # Learning rate for optimizer
 BATCH_SIZE = 64             # Number of samples for training
-MEMORY_SIZE = 100000        # Replay buffer size
+MEMORY_SIZE = 400000        # Replay buffer size
 EPSILON_START = 1.0         # Initial exploration probability
 EPSILON_END = 0.01          # Minimum exploration probability
 EPSILON_DECAY = 0.995       # Decay rate of epsilon
 TARGET_UPDATE_FREQ = 100    # Target network update frequency
 REDIS_HOST = sys.argv[1] if len(sys.argv) > 1 else None
 
-COUNTER_KEY = "counter3"
+COUNTER_KEY = "counter"
 
 import logging
 
@@ -109,6 +109,7 @@ class SharedReplayBuffer:
 
     def done(self):
         self.r.decr(COUNTER_KEY)
+        self.r.close()
 
     def __len__(self):
         return self.r.llen("shared")
