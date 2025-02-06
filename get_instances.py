@@ -20,6 +20,11 @@ def get_instances():
                                 if "Workers" not in command_result:
                                     command_result["Workers"] = []
                                 command_result["Workers"].append(instance["PublicIpAddress"])
+            if "instance_ids" not in command_result:
+                command_result["instance_ids"] = []
+            
+            command_result["instance_ids"].append(instance["InstanceId"])
+    print(",".join(command_result["instance_ids"]))
     return command_result
 
 if __name__ == "__main__":

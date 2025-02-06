@@ -16,10 +16,10 @@ np.bool8 = np.bool_
 np.float_ = np.float64
 
 # Hyperparameters
-MAX_EPISODES = 500      # Training episodes
+MAX_EPISODES = 1000      # Training episodes
 GAMMA = 0.99                # Discount factor
 LEARNING_RATE = 1e-3        # Learning rate for optimizer
-BATCH_SIZE = 64             # Number of samples for training
+BATCH_SIZE = 128             # Number of samples for training
 MEMORY_SIZE = 400000        # Replay buffer size
 EPSILON_START = 1.0         # Initial exploration probability
 EPSILON_END = 0.01          # Minimum exploration probability
@@ -70,6 +70,37 @@ class QNetwork(nn.Module):
         x = torch.relu(self.fc1(x))
         x = torch.relu(self.fc2(x))
         return self.fc3(x)
+
+class QNetworkPixel(nn.Module):
+    def __init__(self, in_channels, action_dim):
+        """
+        Args:
+            in_channels (int): Number of channels in the input image (e.g., 1 for grayscale or 3 for RGB).
+            action_dim (int): Number of discrete actions in the environment.
+        """
+        super(QNetwork, self).__init__()
+        # Convolutional layers
+        self.conv1 = nn.Conv2d(in_channels, 32, kernel_size=8, stride=4)
+        self.conv2 = nn.Conv2d(32, 64, kernel_size=4, stride=2)
+        self.conv3 = nn.Conv2d(64, 64, kernel_size=3, stride=1)
+
+        # After convolutional layers, we flatten before the linear layers
+        # The input to the first linear layer depends on the image size.
+        # For a typical 84x84 input, the last conv layer produces a 64 x 7 x 7 output => 64*7*7 = 3136
+        self.fc1 = nn.Linear(64 * 7 * 7, 512)
+        self.fc2 = nn.Linear(512, action_dim)
+
+    def forward(self, x):
+        """
+        x shape: (batch_size, in_channels, height, width)
+        """
+        x = torch.relu(self.conv1(x))
+        x = torch.relu(self.conv2(x))
+        x = torch.relu(self.conv3(x))
+        # Flatten
+        x = x.view(x.size(0), -1)   # (batch_size, 64*7*7)
+        x = torch.relu(self.fc1(x))
+        return self.fc2(x)
 
 # Replay Buffer
 class SharedReplayBuffer:
@@ -198,7 +229,7 @@ class DDQNAgent:
         self.epsilon = EPSILON_END + (EPSILON_START - EPSILON_END) * np.exp(-step / EPSILON_DECAY)
 
 # Main Training Loop
-def train_ddqn(env_name="CartPole-v1", episodes=MAX_EPISODES):
+def train_ddqn(env_name="Taxi-v3", episodes=MAX_EPISODES):
     env = gym.make(env_name)
     state_dim = env.observation_space.shape[0]
     action_dim = env.action_space.n
