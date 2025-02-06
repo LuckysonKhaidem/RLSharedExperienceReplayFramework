@@ -11,20 +11,21 @@ import redis
 import sys
 import os
 import json
+import cv2
 
 np.bool8 = np.bool_
 np.float_ = np.float64
 
 # Hyperparameters
-MAX_EPISODES = 1000        # Number of training episodes
-GAMMA = 0.99               # Discount factor (good for long-term reward optimization)
-LEARNING_RATE = 1e-3       # Learning rate (reasonable for Q-learning/DQN)
-BATCH_SIZE = 64            # Lowered batch size (128 might be too high for simple environments)
-MEMORY_SIZE = 50000        # Reduced replay buffer size (400k is overkill for Taxi-v3)
-EPSILON_START = 1.0        # Initial exploration probability
-EPSILON_END = 0.05         # Minimum exploration probability (0.01 may be too low)
-EPSILON_DECAY = 0.997      # Adjusted decay rate for smoother transition
-TARGET_UPDATE_FREQ = 50    # More frequent target network updates for stability
+MAX_EPISODES = 1000      # Training episodes
+GAMMA = 0.99                # Discount factor
+LEARNING_RATE = 1e-3        # Learning rate for optimizer
+BATCH_SIZE = 64             # Number of samples for training
+MEMORY_SIZE = 50000        # Replay buffer size
+EPSILON_START = 1.0         # Initial exploration probability
+EPSILON_END = 0.01          # Minimum exploration probability
+EPSILON_DECAY = 0.995       # Decay rate of epsilon
+TARGET_UPDATE_FREQ = 100    # Target network update frequency
 REDIS_HOST = sys.argv[1] if len(sys.argv) > 1 else None  # Redis setup
 
 COUNTER_KEY = "counter"
@@ -71,36 +72,32 @@ class QNetwork(nn.Module):
         x = torch.relu(self.fc2(x))
         return self.fc3(x)
 
+# ---- Q-Network for Pixel Input ----
 class QNetworkPixel(nn.Module):
+    """
+    A simplified CNN similar to DeepMind's Atari DQN architecture.
+    Expects input of shape (N, in_channels, 84, 84).
+    """
     def __init__(self, in_channels, action_dim):
-        """
-        Args:
-            in_channels (int): Number of channels in the input image (e.g., 1 for grayscale or 3 for RGB).
-            action_dim (int): Number of discrete actions in the environment.
-        """
-        super(QNetwork, self).__init__()
+        super(QNetworkPixel, self).__init__()
         # Convolutional layers
         self.conv1 = nn.Conv2d(in_channels, 32, kernel_size=8, stride=4)
         self.conv2 = nn.Conv2d(32, 64, kernel_size=4, stride=2)
         self.conv3 = nn.Conv2d(64, 64, kernel_size=3, stride=1)
 
-        # After convolutional layers, we flatten before the linear layers
-        # The input to the first linear layer depends on the image size.
-        # For a typical 84x84 input, the last conv layer produces a 64 x 7 x 7 output => 64*7*7 = 3136
+        # Compute the size of the output of the last conv layer:
+        # For 84x84 input: 
+        #   conv1 => (84-8)/4+1=20 -> (20-4)/2+1=9 -> (9-3)/1+1=7 => 64*7*7=3136
         self.fc1 = nn.Linear(64 * 7 * 7, 512)
         self.fc2 = nn.Linear(512, action_dim)
 
     def forward(self, x):
-        """
-        x shape: (batch_size, in_channels, height, width)
-        """
-        x = torch.relu(self.conv1(x))
-        x = torch.relu(self.conv2(x))
-        x = torch.relu(self.conv3(x))
-        # Flatten
-        x = x.view(x.size(0), -1)   # (batch_size, 64*7*7)
-        x = torch.relu(self.fc1(x))
-        return self.fc2(x)
+        x = torch.relu(self.conv1(x))   # (N, 32, 20, 20)
+        x = torch.relu(self.conv2(x))   # (N, 64, 9, 9)
+        x = torch.relu(self.conv3(x))   # (N, 64, 7, 7)
+        x = x.view(x.size(0), -1)       # flatten to (N, 3136)
+        x = torch.relu(self.fc1(x))     # (N, 512)
+        return self.fc2(x)              # (N, action_dim)
 
 # Replay Buffer
 class SharedReplayBuffer:
@@ -228,7 +225,7 @@ class DDQNAgent:
         self.epsilon = EPSILON_END + (EPSILON_START - EPSILON_END) * np.exp(-step / EPSILON_DECAY)
 
 # Main Training Loop
-def train_ddqn(env_name="Taxi-v3", episodes=MAX_EPISODES):
+def train_ddqn(env_name="Acrobot-v1", episodes=MAX_EPISODES):
     env = gym.make(env_name)
     if len(env.observation_space.shape) > 0:
         state_dim = env.observation_space.shape[0]
@@ -243,9 +240,9 @@ def train_ddqn(env_name="Taxi-v3", episodes=MAX_EPISODES):
         total_reward = 0
 
         for t in range(1000):
-            action = agent.select_action([state])
+            action = agent.select_action(state)
             next_state, reward, done, _, _ = env.step(action)
-            agent.memory.push([state], action, reward, [next_state], done)
+            agent.memory.push(state, action, reward, next_state, done)
             state = next_state
             total_reward += reward
             agent.train()
@@ -262,6 +259,147 @@ def train_ddqn(env_name="Taxi-v3", episodes=MAX_EPISODES):
 
         logger.info(f"Episode {episode + 1}: Total Reward: {total_reward:.2f}")
     plt.plot(total_rewards)
+    plt.savefig(f"output_{env_name}.png")
+
+    with open(f"rewards_{env_name}.json", "w") as f:
+        f.write(json.dumps(total_rewards))
+
+    agent.memory.done()
+    env.close()
+
+
+
+class DDQNAgentPixel:
+    def __init__(self, in_channels, action_dim):
+        self.action_dim = action_dim
+        self.epsilon = EPSILON_START
+        self.memory = LocalReplayBuffer(MEMORY_SIZE)
+
+        self.q_network = QNetworkPixel(in_channels, action_dim).to(device)
+        self.target_network = QNetworkPixel(in_channels, action_dim).to(device)
+        self.optimizer = optim.Adam(self.q_network.parameters(), lr=LEARNING_RATE)
+
+        self.update_target_network()
+        self.total_steps = 0  # count environment steps
+
+    def update_target_network(self):
+        self.target_network.load_state_dict(self.q_network.state_dict())
+
+    def select_action(self, state):
+        """
+        state: Numpy array of shape (1, 84, 84).
+        We'll unsqueeze(0) to get (batch=1, channels=1, H=84, W=84).
+        """
+        if random.random() < self.epsilon:
+            return random.randint(0, self.action_dim - 1)
+        else:
+            state_t = torch.FloatTensor(state).unsqueeze(0).to(device) 
+            # shape => (1, 1, 84, 84)
+            with torch.no_grad():
+                q_values = self.q_network(state_t)
+            return q_values.argmax().item()
+
+    def train_step(self):
+        # Only train if we have enough samples
+        if len(self.memory) < BATCH_SIZE:
+            return
+
+        states, actions, rewards, next_states, dones = self.memory.sample(BATCH_SIZE)
+        # Convert to PyTorch tensors
+        states_t      = torch.FloatTensor(states).to(device)       # (B, 1, 84, 84)
+        actions_t = torch.LongTensor(actions).view(-1, 1).to(device)     # (B, 1)
+        rewards_t     = torch.FloatTensor(rewards).to(device)      # (B, 1)
+        next_states_t = torch.FloatTensor(next_states).to(device)  # (B, 1, 84, 84)
+        dones_t       = torch.FloatTensor(dones).to(device)        # (B, 1)
+
+        # Current Q-values
+        q_values = self.q_network(states_t).gather(1, actions_t)
+
+        # DDQN target
+        with torch.no_grad():
+            # next action from current Q-net
+            next_actions = self.q_network(next_states_t).argmax(dim=1, keepdim=True)
+            # evaluate using target network
+            next_q_values = self.target_network(next_states_t).gather(1, next_actions)
+            target = rewards_t + GAMMA * (1 - dones_t) * next_q_values
+
+        loss = nn.MSELoss()(q_values, target)
+        self.optimizer.zero_grad()
+        loss.backward()
+        self.optimizer.step()
+
+    def update_epsilon(self):
+        # Exponential decay or any other schedule
+        self.epsilon = max(EPSILON_END, self.epsilon * EPSILON_DECAY)
+
+
+def preprocess(obs):
+    """
+    Convert (210, 160, 3) to (1, 84, 84) grayscale and scale to [0,1].
+    """
+    # obs is typically uint8 [0..255]
+    # 1) convert to grayscale
+    gray = cv2.cvtColor(obs, cv2.COLOR_BGR2GRAY)
+
+    # 2) resize to 84x84
+    resized = cv2.resize(gray, (84, 84), interpolation=cv2.INTER_AREA)
+
+    # 3) normalize to [0,1]
+    normalized = resized.astype(np.float32) / 255.0
+
+    # 4) add channel dimension => (1, 84, 84)
+    return np.expand_dims(normalized, axis=0)
+
+def train_ddqn_pixel(env_name = "Pong-v0", episodes=MAX_EPISODES):
+    env = gym.make("Pong-v0")
+    action_dim = env.action_space.n  # Typically 6 for Pong
+    in_channels = 1                  # We'll do grayscale input
+    agent = DDQNAgentPixel(in_channels, action_dim)
+
+    rewards_history = []
+    best_mean_reward = float('-inf')
+
+    for ep in range(episodes):
+        obs, _ = env.reset()
+        state = preprocess(obs)      # shape (1, 84, 84)
+        total_reward = 0
+
+        done = False
+        t = 0
+        while not done:
+            action = agent.select_action(state)
+            obs_next, reward, terminated, truncated, info = env.step(action)
+            done = terminated or truncated
+
+            next_state = preprocess(obs_next)
+            agent.memory.push(state, action, reward, next_state, done)
+            total_reward += reward
+
+            # Train step
+            agent.train_step()
+
+            # Update state
+            state = next_state
+            t += 1
+            agent.total_steps += 1
+
+            # Update target network periodically
+            if agent.total_steps % TARGET_UPDATE_FREQ == 0:
+                agent.update_target_network()
+
+            # Epsilon decay each step
+            agent.update_epsilon()
+
+        rewards_history.append(total_reward)
+
+        # Logging
+        mean_reward_100 = np.mean(rewards_history[-100:])
+        print(f"Episode {ep+1} | Ep.Reward: {total_reward:.2f} | "
+              f"Mean(100): {mean_reward_100:.2f} | Epsilon: {agent.epsilon:.3f}")
+
+
+    env.close()
+    plt.plot(rewards_history)
     plt.savefig(f"output_{env_name}.png")
 
     with open(f"rewards_{env_name}.json", "w") as f:
