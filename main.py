@@ -16,16 +16,16 @@ np.bool8 = np.bool_
 np.float_ = np.float64
 
 # Hyperparameters
-MAX_EPISODES = 1000      # Training episodes
-GAMMA = 0.99                # Discount factor
-LEARNING_RATE = 1e-3        # Learning rate for optimizer
-BATCH_SIZE = 128             # Number of samples for training
-MEMORY_SIZE = 400000        # Replay buffer size
-EPSILON_START = 1.0         # Initial exploration probability
-EPSILON_END = 0.01          # Minimum exploration probability
-EPSILON_DECAY = 0.995       # Decay rate of epsilon
-TARGET_UPDATE_FREQ = 100    # Target network update frequency
-REDIS_HOST = sys.argv[1] if len(sys.argv) > 1 else None
+MAX_EPISODES = 1000        # Number of training episodes
+GAMMA = 0.99               # Discount factor (good for long-term reward optimization)
+LEARNING_RATE = 1e-3       # Learning rate (reasonable for Q-learning/DQN)
+BATCH_SIZE = 64            # Lowered batch size (128 might be too high for simple environments)
+MEMORY_SIZE = 50000        # Reduced replay buffer size (400k is overkill for Taxi-v3)
+EPSILON_START = 1.0        # Initial exploration probability
+EPSILON_END = 0.05         # Minimum exploration probability (0.01 may be too low)
+EPSILON_DECAY = 0.997      # Adjusted decay rate for smoother transition
+TARGET_UPDATE_FREQ = 50    # More frequent target network updates for stability
+REDIS_HOST = sys.argv[1] if len(sys.argv) > 1 else None  # Redis setup
 
 COUNTER_KEY = "counter"
 
@@ -203,7 +203,6 @@ class DDQNAgent:
             return
 
         states, actions, rewards, next_states, dones = self.memory.sample(BATCH_SIZE)
-
         states = torch.FloatTensor(states).to(device)
         actions = torch.LongTensor(actions).unsqueeze(1).to(device)
         rewards = torch.FloatTensor(rewards).to(device)
@@ -231,9 +230,11 @@ class DDQNAgent:
 # Main Training Loop
 def train_ddqn(env_name="Taxi-v3", episodes=MAX_EPISODES):
     env = gym.make(env_name)
-    state_dim = env.observation_space.shape[0]
+    if len(env.observation_space.shape) > 0:
+        state_dim = env.observation_space.shape[0]
+    else:
+        state_dim = 1
     action_dim = env.action_space.n
-
     agent = DDQNAgent(state_dim, action_dim)
     total_steps = 0
     total_rewards = []
@@ -242,12 +243,11 @@ def train_ddqn(env_name="Taxi-v3", episodes=MAX_EPISODES):
         total_reward = 0
 
         for t in range(1000):
-            action = agent.select_action(state)
+            action = agent.select_action([state])
             next_state, reward, done, _, _ = env.step(action)
-            agent.memory.push(state, action, reward, next_state, done)
+            agent.memory.push([state], action, reward, [next_state], done)
             state = next_state
             total_reward += reward
-
             agent.train()
             agent.update_epsilon(total_steps)
 
