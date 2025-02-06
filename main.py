@@ -11,7 +11,6 @@ import redis
 import sys
 import os
 import json
-import cv2
 
 np.bool8 = np.bool_
 np.float_ = np.float64
