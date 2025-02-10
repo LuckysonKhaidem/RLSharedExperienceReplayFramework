@@ -224,7 +224,7 @@ class DDQNAgent:
         self.epsilon = EPSILON_END + (EPSILON_START - EPSILON_END) * np.exp(-step / EPSILON_DECAY)
 
 # Main Training Loop
-def train_ddqn(env_name="Acrobot-v1", episodes=MAX_EPISODES):
+def train_ddqn(env_name="CartPole-v1", episodes=MAX_EPISODES):
     env = gym.make(env_name)
     if len(env.observation_space.shape) > 0:
         state_dim = env.observation_space.shape[0]
