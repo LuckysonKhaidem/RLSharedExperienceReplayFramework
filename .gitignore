@@ -4,3 +4,4 @@ run.log
 results
 *.pem
 rewards*.json
+__pycache__
