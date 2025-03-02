@@ -407,6 +407,185 @@ def train_ddqn_pixel(env_name = "Pong-v0", episodes=MAX_EPISODES):
     agent.memory.done()
     env.close()
 
+
+
+
+class Actor(nn.Module):
+    def __init__(self, state_dim, action_dim, max_action):
+        super(Actor, self).__init__()
+        self.max_action = max_action
+        # Define layers
+        self.fc1 = nn.Linear(state_dim, 400)
+        self.ln1 = nn.LayerNorm(400)
+        self.fc2 = nn.Linear(400, 300)
+        self.ln2 = nn.LayerNorm(300)
+        self.fc3 = nn.Linear(300, action_dim)
+
+        # Initialize weights
+        self.init_weights()
+
+    def init_weights(self):
+        # Initialize the output layer weights to small values
+        nn.init.uniform_(self.fc3.weight, -3e-3, 3e-3)
+        nn.init.zeros_(self.fc3.bias)
+
+    def forward(self, state):
+        # Forward pass with LeakyReLU activation
+        x = torch.nn.functional.leaky_relu(self.ln1(self.fc1(state)), negative_slope=0.01)
+        x = torch.nn.functional.leaky_relu(self.ln2(self.fc2(x)), negative_slope=0.01)
+        return torch.tanh(self.fc3(x)) * self.max_action
+
+
+class Critic(nn.Module):
+    def __init__(self, state_dim, action_dim):
+        super(Critic, self).__init__()
+        # State pathway
+        self.fc1_state = nn.Linear(state_dim, 400)
+        self.ln1_state = nn.LayerNorm(400)
+        # Action pathway
+        self.fc1_action = nn.Linear(action_dim, 400)
+        # Combined pathway
+        self.fc2 = nn.Linear(800, 300)
+        self.ln2 = nn.LayerNorm(300)
+        self.fc3 = nn.Linear(300, 1)
+
+        # Initialize weights
+        self.init_weights()
+
+    def init_weights(self):
+        # Initialize the output layer weights to small values
+        nn.init.uniform_(self.fc3.weight, -3e-3, 3e-3)
+        nn.init.zeros_(self.fc3.bias)
+
+    def forward(self, state, action):
+        # Forward pass for state and action
+        s_out = torch.nn.functional.leaky_relu(self.ln1_state(self.fc1_state(state)), negative_slope=0.01)
+        a_out = torch.nn.functional.leaky_relu(self.fc1_action(action), negative_slope=0.01)
+        # Combine state and action features
+        x = torch.cat([s_out, a_out], dim=1)
+        x = torch.nn.functional.leaky_relu(self.ln2(self.fc2(x)), negative_slope=0.01)
+        return self.fc3(x)
+
+class MultiAgentDDPG:
+    def __init__(self, state_dim, action_dim, env):
+        max_action = env.action_space.high[0]  # Get max action value
+        self.state_dim = state_dim
+        self.action_dim = action_dim
+        if REDIS_HOST is None:
+            self.memory = LocalReplayBuffer(MEMORY_SIZE)
+        else:
+            self.memory = SharedReplayBuffer(MEMORY_SIZE)
+        # Networks
+        self.actor = Actor(state_dim, action_dim, max_action).to(device)
+        self.critic = Critic(state_dim, action_dim).to(device)
+        self.target_actor = Actor(state_dim, action_dim, max_action).to(device)
+        self.target_critic = Critic(state_dim, action_dim).to(device)
+
+        # Optimizers
+        self.actor_optimizer = optim.Adam(self.actor.parameters(), lr=LEARNING_RATE)
+        self.critic_optimizer = optim.Adam(self.critic.parameters(), lr=LEARNING_RATE)
+
+        # Noise for exploration
+        self.noise = OrnsteinUhlenbeckNoise(action_dim)
+
+        # Initialize target networks
+        self.update_target_networks()
+
+    def update_target_networks(self):
+        self.target_actor.load_state_dict(self.actor.state_dict())
+        self.target_critic.load_state_dict(self.critic.state_dict())
+
+    def select_action(self, state):
+        state = torch.FloatTensor(state).unsqueeze(0).to(device)
+        action = self.actor(state).cpu().data.numpy().flatten()
+        return action + self.noise()
+
+    def train(self):
+        if len(self.memory) < BATCH_SIZE:
+            return
+
+        states, actions, rewards, next_states, dones = self.memory.sample(BATCH_SIZE)
+        states = torch.FloatTensor(states).to(device)
+        actions = torch.FloatTensor(actions).to(device)
+        rewards = torch.FloatTensor(rewards).to(device)
+        next_states = torch.FloatTensor(next_states).to(device)
+        dones = torch.FloatTensor(dones).to(device)
+
+        # Update Critic
+        next_actions = self.target_actor(next_states)
+        target_q_values = self.target_critic(next_states, next_actions)
+        target_q_values = rewards.unsqueeze(1) + GAMMA * target_q_values * (1 - dones.unsqueeze(1))
+        critic_loss = nn.MSELoss()(self.critic(states, actions), target_q_values)
+        self.critic_optimizer.zero_grad()
+        critic_loss.backward()
+        self.critic_optimizer.step()
+
+        # Update Actor
+        actor_loss = -self.critic(states, self.actor(states)).mean()
+        self.actor_optimizer.zero_grad()
+        actor_loss.backward()
+        self.actor_optimizer.step()
+
+        # Soft update target networks
+        with torch.no_grad():
+            for target_param, param in zip(self.target_actor.parameters(), self.actor.parameters()):
+                target_param.data = target_param.data * 0.995 + param.data * 0.005
+            for target_param, param in zip(self.target_critic.parameters(), self.critic.parameters()):
+                target_param.data = target_param.data * 0.995 + param.data * 0.005
+
+
+class OrnsteinUhlenbeckNoise:
+    def __init__(self, action_dim, mu=0.0, theta=0.15, sigma=0.2):
+        self.mu = mu * np.ones(action_dim)
+        self.theta = theta
+        self.sigma = sigma
+        self.state = np.copy(self.mu)
+        self.reset()
+
+    def reset(self):
+        self.state = np.copy(self.mu)
+
+    def __call__(self):
+        dx = self.theta * (self.mu - self.state) + self.sigma * np.random.randn(len(self.mu))
+        self.state = self.state + dx
+        return self.state
+
+import json
+
+
+def train_single_agent_ddpg(env_name="Pendulum-v1", episodes=MAX_EPISODES):
+    env = gym.make(env_name)
+    state_dim = env.observation_space.shape[0]
+    action_dim = env.action_space.shape[0]
+
+    agent = MultiAgentDDPG(state_dim, action_dim, env)
+    total_rewards = []
+
+    for episode in range(episodes):
+        state, _ = env.reset()
+        episode_reward = 0
+
+        for t in range(1000):
+            action = agent.select_action(state)
+            next_state, reward, done, _, _ = env.step(action)
+            agent.memory.push(state, action, reward, next_state, done)
+
+            agent.train()
+            episode_reward += reward
+            state = next_state
+
+            if done:
+                break
+
+        total_rewards.append(episode_reward)
+
+        # Log reward
+        logger.info(f"Episode {episode + 1}: Reward: {episode_reward:.2f}")
+
+        with open(f"rewards_{env_name}.json", "w") as f:
+            json.dump(total_rewards, f)
+
+    env.close()
 # Run the training
 if __name__ == "__main__":
-    train_ddqn()
+    train_single_agent_ddpg()
