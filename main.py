@@ -16,11 +16,11 @@ np.bool8 = np.bool_
 np.float_ = np.float64
 
 # Hyperparameters
-MAX_EPISODES = 500          # Training episodes
+MAX_EPISODES = 1000          # Training episodes
 GAMMA = 0.99                # Discount factor
 LEARNING_RATE = 1e-3        # Learning rate for optimizer
 BATCH_SIZE = 64             # Number of samples for training
-MEMORY_SIZE = 100000       # Replay buffer size
+MEMORY_SIZE = 300000       # Replay buffer size
 EPSILON_START = 1.0         # Initial exploration probability
 EPSILON_END = 0.01          # Minimum exploration probability
 EPSILON_DECAY = 0.995       # Decay rate of epsilon
@@ -486,7 +486,8 @@ class MultiAgentDDPG:
         self.critic_optimizer = optim.Adam(self.critic.parameters(), lr=LEARNING_RATE)
 
         # Noise for exploration
-        self.noise = OrnsteinUhlenbeckNoise(action_dim)
+        self.noise = OrnsteinUhlenbeckNoise(action_dim, sigma = 0.2)
+        self.noise.sigma *= 0.995
 
         # Initialize target networks
         self.update_target_networks()
@@ -529,9 +530,9 @@ class MultiAgentDDPG:
         # Soft update target networks
         with torch.no_grad():
             for target_param, param in zip(self.target_actor.parameters(), self.actor.parameters()):
-                target_param.data = target_param.data * 0.995 + param.data * 0.005
+                target_param.data = target_param.data * 0.99 + param.data * 0.01
             for target_param, param in zip(self.target_critic.parameters(), self.critic.parameters()):
-                target_param.data = target_param.data * 0.995 + param.data * 0.005
+                target_param.data = target_param.data * 0.99 + param.data * 0.01
 
 
 class OrnsteinUhlenbeckNoise:
