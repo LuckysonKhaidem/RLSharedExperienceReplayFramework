@@ -26,7 +26,7 @@ while True:
         ec2_client.stop_instances(InstanceIds = instances["instance_ids"])
         exit()
     
-    time.sleep(60 * 10)
+    time.sleep(60 * 5)
 
 
 	

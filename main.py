@@ -554,7 +554,7 @@ class OrnsteinUhlenbeckNoise:
 import json
 
 
-def train_single_agent_ddpg(env_name="Pendulum-v1", episodes=MAX_EPISODES):
+def train_single_agent_ddpg(env_name="MountainCarContinuous-v0", episodes=MAX_EPISODES):
     env = gym.make(env_name)
     state_dim = env.observation_space.shape[0]
     action_dim = env.action_space.shape[0]
