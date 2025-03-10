@@ -16,7 +16,7 @@ np.bool8 = np.bool_
 np.float_ = np.float64
 
 # Hyperparameters
-MAX_EPISODES = 1000          # Training episodes
+MAX_EPISODES = 1000         # Training episodes
 GAMMA = 0.99                # Discount factor
 LEARNING_RATE = 1e-3        # Learning rate for optimizer
 BATCH_SIZE = 64             # Number of samples for training
@@ -165,6 +165,7 @@ class LocalReplayBuffer:
     def done(self):
         pass
 
+shared_buffer = LocalReplayBuffer(MEMORY_SIZE)
 # DDQN Agent
 class DDQNAgent:
     def __init__(self, state_dim, action_dim):
@@ -172,13 +173,14 @@ class DDQNAgent:
         self.action_dim = action_dim
         self.epsilon = EPSILON_START
         if REDIS_HOST is None:
-            self.memory = LocalReplayBuffer(MEMORY_SIZE)
+            self.memory = shared_buffer
         else:
             self.memory = SharedReplayBuffer(MEMORY_SIZE)
 
         self.q_network = QNetwork(state_dim, action_dim).to(device)
         self.target_network = QNetwork(state_dim, action_dim).to(device)
         self.optimizer = optim.Adam(self.q_network.parameters(), lr=LEARNING_RATE)
+        self.total_rewards = []
 
         self.update_target_network()
 
@@ -225,43 +227,51 @@ class DDQNAgent:
 
 # Main Training Loop
 def train_ddqn(env_name="CartPole-v1", episodes=MAX_EPISODES):
-    env = gym.make(env_name)
-    if len(env.observation_space.shape) > 0:
-        state_dim = env.observation_space.shape[0]
-    else:
-        state_dim = 1
-    action_dim = env.action_space.n
-    agent = DDQNAgent(state_dim, action_dim)
-    total_steps = 0
-    total_rewards = []
+    n_instances = 4
+    agents = []
+    envs = []
+    total_steps = [0] * n_instances
+    for i in range(n_instances):
+        env = gym.make(env_name)
+        if len(env.observation_space.shape) > 0:
+            state_dim = env.observation_space.shape[0]
+        else:
+            state_dim = 1
+        action_dim = env.action_space.n
+        envs.append(env)
+        agent = DDQNAgent(state_dim, action_dim)
+        agents.append(agent)
+
     for episode in range(episodes):
-        state, _ = env.reset()
-        total_reward = 0
+        for i in range(n_instances):
+            agent = agents[i]
+            env = envs[i]
+            state, _ = env.reset()
+            total_reward = 0
 
-        for t in range(1000):
-            action = agent.select_action(state)
-            next_state, reward, done, _, _ = env.step(action)
-            agent.memory.push(state, action, reward, next_state, done)
-            state = next_state
-            total_reward += reward
-            agent.train()
-            agent.update_epsilon(total_steps)
+            for t in range(1000):
+                action = agent.select_action(state)
+                next_state, reward, done, _, _ = env.step(action)
+                agent.memory.push(state, action, reward, next_state, done)
+                state = next_state
+                total_reward += reward
+                agent.train()
+                agent.update_epsilon(total_steps[i])
 
-            if done:
-                break
+                if done:
+                    break
 
-            total_steps += 1
+                total_steps[i] += 1
 
-            if total_steps % TARGET_UPDATE_FREQ == 0:
-                agent.update_target_network()
-        total_rewards.append(total_reward)
+                if total_steps[i] % TARGET_UPDATE_FREQ == 0:
+                    agent.update_target_network()
+            agent.total_rewards.append(total_reward)
 
-        logger.info(f"Episode {episode + 1}: Total Reward: {total_reward:.2f}")
-    plt.plot(total_rewards)
-    plt.savefig(f"output_{env_name}.png")
+            logger.info(f"Agent {i} Episode {episode + 1}: Total Reward: {total_reward:.2f}")
 
-    with open(f"rewards_{env_name}.json", "w") as f:
-        f.write(json.dumps(total_rewards))
+    for i in range(n_instances):
+        with open(f"results/instance{i}/rewards_{env_name}.json", "w") as f:
+            f.write(json.dumps(agents[i].total_rewards))
 
     agent.memory.done()
     env.close()
@@ -465,6 +475,7 @@ class Critic(nn.Module):
         x = torch.cat([s_out, a_out], dim=1)
         x = torch.nn.functional.leaky_relu(self.ln2(self.fc2(x)), negative_slope=0.01)
         return self.fc3(x)
+    
 
 class MultiAgentDDPG:
     def __init__(self, state_dim, action_dim, env):
@@ -472,7 +483,7 @@ class MultiAgentDDPG:
         self.state_dim = state_dim
         self.action_dim = action_dim
         if REDIS_HOST is None:
-            self.memory = LocalReplayBuffer(MEMORY_SIZE)
+            self.memory = shared_buffer
         else:
             self.memory = SharedReplayBuffer(MEMORY_SIZE)
         # Networks
@@ -488,6 +499,7 @@ class MultiAgentDDPG:
         # Noise for exploration
         self.noise = OrnsteinUhlenbeckNoise(action_dim, sigma = 0.2)
         self.noise.sigma *= 0.995
+        self.total_rewards = []
 
         # Initialize target networks
         self.update_target_networks()
@@ -554,39 +566,48 @@ class OrnsteinUhlenbeckNoise:
 import json
 
 
-def train_single_agent_ddpg(env_name="MountainCarContinuous-v0", episodes=MAX_EPISODES):
-    env = gym.make(env_name)
-    state_dim = env.observation_space.shape[0]
-    action_dim = env.action_space.shape[0]
+def train_single_agent_ddpg(env_name="Pendulum-v1", episodes=MAX_EPISODES):
 
-    agent = MultiAgentDDPG(state_dim, action_dim, env)
-    total_rewards = []
+    n_instances = 4
+    agents = []
+    envs = []
+    for i in range(n_instances):
+        env = gym.make(env_name)
+        state_dim = env.observation_space.shape[0]
+        action_dim = env.action_space.shape[0]
+        envs.append(env)
+        agent = MultiAgentDDPG(state_dim, action_dim, env)
+        agents.append(agent)
 
     for episode in range(episodes):
-        state, _ = env.reset()
-        episode_reward = 0
+        for i in range(n_instances):
+            agent = agents[i]
+            env = envs[i]
+            state, _ = env.reset()
+            episode_reward = 0
 
-        for t in range(1000):
-            action = agent.select_action(state)
-            next_state, reward, done, _, _ = env.step(action)
-            agent.memory.push(state, action, reward, next_state, done)
+            for t in range(1000):
+                action = agent.select_action(state)
+                next_state, reward, done, _, _ = env.step(action)
+                agent.memory.push(state, action, reward, next_state, done)
 
-            agent.train()
-            episode_reward += reward
-            state = next_state
+                agent.train()
+                episode_reward += reward
+                state = next_state
 
-            if done:
-                break
+                if done:
+                    break
 
-        total_rewards.append(episode_reward)
+            agent.total_rewards.append(episode_reward)
 
         # Log reward
-        logger.info(f"Episode {episode + 1}: Reward: {episode_reward:.2f}")
+            logger.info(f"Agent{i} Episode {episode + 1}: Reward: {episode_reward:.2f}")
 
-        with open(f"rewards_{env_name}.json", "w") as f:
-            json.dump(total_rewards, f)
+    for i in range(n_instances):
+        with open(f"results/instance{i}/rewards_{env_name}.json", "w") as f:
+            json.dump(agent[i].total_rewards, f)
 
     env.close()
 # Run the training
 if __name__ == "__main__":
-    train_single_agent_ddpg()
+    train_ddqn()
