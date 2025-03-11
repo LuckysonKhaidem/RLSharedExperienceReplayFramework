@@ -20,7 +20,7 @@ MAX_EPISODES = 1000         # Training episodes
 GAMMA = 0.99                # Discount factor
 LEARNING_RATE = 1e-3        # Learning rate for optimizer
 BATCH_SIZE = 64             # Number of samples for training
-MEMORY_SIZE = 300000       # Replay buffer size
+MEMORY_SIZE = 600000       # Replay buffer size
 EPSILON_START = 1.0         # Initial exploration probability
 EPSILON_END = 0.01          # Minimum exploration probability
 EPSILON_DECAY = 0.995       # Decay rate of epsilon
@@ -610,4 +610,4 @@ def train_single_agent_ddpg(env_name="Pendulum-v1", episodes=MAX_EPISODES):
     env.close()
 # Run the training
 if __name__ == "__main__":
-    train_ddqn()
+    train_single_agent_ddpg()
