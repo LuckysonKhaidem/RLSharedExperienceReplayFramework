@@ -226,8 +226,8 @@ class DDQNAgent:
         self.epsilon = EPSILON_END + (EPSILON_START - EPSILON_END) * np.exp(-step / EPSILON_DECAY)
 
 # Main Training Loop
-def train_ddqn(env_name="CartPole-v1", episodes=MAX_EPISODES):
-    n_instances = 4
+def train_ddqn(env_name="MountainCar-v0", episodes=MAX_EPISODES):
+    n_instances = 1
     agents = []
     envs = []
     total_steps = [0] * n_instances
@@ -269,9 +269,13 @@ def train_ddqn(env_name="CartPole-v1", episodes=MAX_EPISODES):
 
             logger.info(f"Agent {i} Episode {episode + 1}: Total Reward: {total_reward:.2f}")
 
-    for i in range(n_instances):
-        with open(f"results/instance{i}/rewards_{env_name}.json", "w") as f:
-            f.write(json.dumps(agents[i].total_rewards))
+    if n_instances == 1:
+        with open(f"rewards_{env_name}_local.json") as f:
+            f.write(json.dumps(agents[0].total_rewards))
+    else:
+        for i in range(n_instances):
+            with open(f"results/instance{i}/rewards_{env_name}.json", "w") as f:
+                f.write(json.dumps(agents[i].total_rewards))
 
     agent.memory.done()
     env.close()
@@ -568,7 +572,7 @@ import json
 
 def train_single_agent_ddpg(env_name="Pendulum-v1", episodes=MAX_EPISODES):
 
-    n_instances = 4
+    n_instances = 1
     agents = []
     envs = []
     for i in range(n_instances):

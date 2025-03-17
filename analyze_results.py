@@ -2,6 +2,8 @@ import json
 from matplotlib import pyplot as plt
 import numpy as np
 import sys
+import matplotlib
+matplotlib.rcParams['font.family'] = 'serif'
 
 n_instances = 5
 def moving_average(arr, window_size):
@@ -29,9 +31,9 @@ def main():
     for i in range(len(multi_data)):
         plt.plot(moving_average(multi_data[i], 100), label = f"Async DDQN Agent{i}")
     plt.xlabel("Episodes")
-    plt.ylabel("Reward")
+    plt.ylabel("Moving average reward")
     plt.title(f"Convergence Comparision on {env_name} environment")
     plt.legend()
-    plt.show()
+    plt.savefig(f"{env_name}.pdf")
 if __name__ == "__main__":
     main()
